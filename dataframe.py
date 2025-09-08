@@ -50,6 +50,7 @@ def get_user_messages_len(chat_id,user_id) -> str:
     average = messages_len / messages_count
     return f'{fullname} - {round(average,2)}'
 
+#Получение кол-ва сообщений по пользователям в группе
 def get_group_messages_count(chat_id) -> str:
     df = get_statistic()
     df = df[(df['chat_id'] == chat_id)]
@@ -58,7 +59,7 @@ def get_group_messages_count(chat_id) -> str:
     for fullname,value in df:
         result += f'{fullname} - {len(value)} \n'
     return result 
-
+#Получение средней длины сообщений по пользователям в группе
 def get_group_messages_len(chat_id):
     df = get_statistic()
     df = df[(df['chat_id'] == chat_id)]
@@ -69,6 +70,16 @@ def get_group_messages_len(chat_id):
         messages_count = len(value)
         average = messages_len / messages_count
         result += f'{fullname} - {round(average,2)}\n'
+    return result
+
+#Получение статистики по типам сообщений у пользователя
+def get_user_messages_type(chat_id,user_id) -> str:
+    df = get_statistic()
+    df = df[(df['chat_id']==chat_id) & (df['user_id'] == user_id)]
+    fullname = df['fullname'][0]
+    result = f'Типы сообщений у пользователя {fullname}\n'
+    for type,count in df['type'].value_counts().items():
+        result+=f'Тип:{type} - {count}\n'
     return result
 
 #Авто запуск при запуске бота
