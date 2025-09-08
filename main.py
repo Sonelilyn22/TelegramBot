@@ -3,6 +3,7 @@ import os
 import dotenv
 import uuid
 import random
+import dataframe
 
 def create_chat_folder(chatId):
     os.makedirs(f'uploads/{chatId}',exist_ok=True)
@@ -54,6 +55,29 @@ def reply_location(message:types.Message):
     keyboard.add(button)
     bot.send_message(message.chat.id,'Дай локацию',reply_markup=keyboard)
 
+@bot.message_handler(commands=['messages_count'])
+def get_user_messages_count(message:types.Message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    result = dataframe.get_user_messages_count(chat_id,user_id)
+    bot.send_message(message.chat.id,result)
+
+@bot.message_handler(commands=['user_stats'])
+def create_user_stat(message:types.Message):
+    keyboard = util.quick_markup({
+        'Кол-во сообщений':{'callback_data':'user_messages_count'},
+        'Средняя длина сообщений':{'callback_data':'user_messages_len'}
+    })
+    bot.send_message(message.chat.id,'Кнопки вашей статстики',reply_markup=keyboard)
+
+@bot.message_handler(commands=['group_stats'])
+def create_group_stat(message:types.Message):
+    keyboard = util.quick_markup({
+        'Кол-во сообщений':{'callback_data':'group_messages_count'},
+        'Средняя длина сообщений':{'callback_data':'group_messages_len'}
+    })
+    bot.send_message(message.chat.id,'Статистика группы',reply_markup=keyboard)
+
 @bot.message_handler(content_types=['photo'])
 def OnSendImage(message:types.Message):
     create_chat_folder(str(message.chat.id))
@@ -79,7 +103,6 @@ def OnSendAudio(message:types.Message):
 
 @bot.message_handler(content_types=['video'])
 def OnSendVideo(message:types.Message):
-
     chatId = str(message.chat.id)
     create_chat_folder(chatId)
     video = message.video
@@ -89,15 +112,36 @@ def OnSendVideo(message:types.Message):
     with open(f'uploads/{chatId}/{filename}.mp4','wb') as newfile:
         newfile.write(file)
     bot.reply_to(message,'Видео сохранено')
-
 @bot.callback_query_handler(func=lambda call:True)
 def callback_handler(call:types.CallbackQuery):
     if call.message:
         if call.data == 'test':
             bot.send_message(call.message.chat.id,'Вы нажали на inline кнопку')
             bot.edit_message_reply_markup(call.message.chat.id,call.message.id,reply_markup=None)
+        if call.data == 'user_messages_count':
+            chat_id = call.message.chat.id
+            user_id = call.from_user.id
+            result = dataframe.get_user_messages_count(chat_id,user_id)
+            bot.send_message(chat_id,result)
+        if call.data == 'user_messages_len':
+            chat_id = call.message.chat.id
+            user_id = call.from_user.id
+            result = dataframe.get_user_messages_len(chat_id,user_id)
+            bot.send_message(chat_id,result)
+        if call.data == 'group_messages_count':
+            chat_id = call.message.chat.id
+            result = dataframe.get_group_messages_count(chat_id)
+            bot.send_message(chat_id,result)
+        if call.data == 'group_messages_len':
+            chat_id = call.message.chat.id
+            result = dataframe.get_group_messages_len(chat_id)
+            bot.send_message(chat_id,result)
+
 @bot.message_handler(func=lambda message:True)
 def all_messages(message:types.Message):
-    bot.reply_to(message,message.text)
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    fullname = message.from_user.full_name
+    dataframe.save_statistic(chat_id,user_id,fullname,message.text,message.content_type)
 
 bot.infinity_polling()
