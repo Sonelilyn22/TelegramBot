@@ -37,50 +37,65 @@ def save_statistic(chat_id,user_id,fullname,message,type):
 def get_user_messages_count(chat_id,user_id) -> str:
     df = get_statistic()
     df = df[(df['chat_id'] == chat_id) & (df['user_id'] == user_id)]
-    fullname = df['fullname'][0]
-    return f'{fullname} - {len(df)}'
+    if len(df) > 0:
+        fullname = df['fullname'][0]
+        return f'{fullname} - {len(df)}'
+    else:
+        return 'Вы ещё не отправляли сообщения'
 
 #Получение средней длины сообщений конкретного пользователя
 def get_user_messages_len(chat_id,user_id) -> str:
     df = get_statistic()
     df = df[(df['chat_id'] == chat_id) & (df['user_id'] == user_id)]
-    fullname = df['fullname'][0]
-    messages_len = sum(len(x) for x in df['message'].values)
-    messages_count = len(df)
-    average = messages_len / messages_count
-    return f'{fullname} - {round(average,2)}'
+    if len(df) > 0:
+        fullname = df['fullname'][0]
+        messages_len = sum(len(x) for x in df['message'].values)
+        messages_count = len(df)
+        average = messages_len / messages_count
+        return f'{fullname} - {round(average,2)}'
+    else:
+        return 'Вы ещё не отправляли сообщения'
 
 #Получение кол-ва сообщений по пользователям в группе
 def get_group_messages_count(chat_id) -> str:
     df = get_statistic()
     df = df[(df['chat_id'] == chat_id)]
     df = df.groupby(df['fullname'])
-    result = 'Топ пользователей по кол-ву сообщений \n'
-    for fullname,value in df:
-        result += f'{fullname} - {len(value)} \n'
-    return result 
+    if len(df) > 0:
+        result = 'Топ пользователей по кол-ву сообщений \n'
+        for fullname,value in df:
+            result += f'{fullname} - {len(value)} \n'
+        return result
+    else:
+        return 'В группе ещё не отправлялись сообщения'
 #Получение средней длины сообщений по пользователям в группе
 def get_group_messages_len(chat_id):
     df = get_statistic()
     df = df[(df['chat_id'] == chat_id)]
     df = df.groupby(df['fullname'])
-    result = 'Топ пользователей по средней длине сообщений \n'
-    for fullname,value in df:
-        messages_len = sum(len(x) for x in value['message'].values)
-        messages_count = len(value)
-        average = messages_len / messages_count
-        result += f'{fullname} - {round(average,2)}\n'
-    return result
+    if len(df) > 0:
+        result = 'Топ пользователей по средней длине сообщений \n'
+        for fullname,value in df:
+            messages_len = sum(len(x) for x in value['message'].values)
+            messages_count = len(value)
+            average = messages_len / messages_count
+            result += f'{fullname} - {round(average,2)}\n'
+        return result
+    else:
+        return 'В группе ещё не отправлялись сообщения'
 
 #Получение статистики по типам сообщений у пользователя
 def get_user_messages_type(chat_id,user_id) -> str:
     df = get_statistic()
     df = df[(df['chat_id']==chat_id) & (df['user_id'] == user_id)]
-    fullname = df['fullname'][0]
-    result = f'Типы сообщений у пользователя {fullname}\n'
-    for type,count in df['type'].value_counts().items():
-        result+=f'Тип:{type} - {count}\n'
-    return result
+    if len(df) > 0:
+        fullname = df['fullname'][0]
+        result = f'Типы сообщений у пользователя {fullname}\n'
+        for type,count in df['type'].value_counts().items():
+            result+=f'Тип:{type} - {count}\n'
+        return result
+    else:
+        return 'Вы ещё не отправляли сообщения'
 
 #Авто запуск при запуске бота
 check_statistic()
