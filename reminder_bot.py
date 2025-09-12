@@ -5,6 +5,7 @@ import threading #модуль многопоточности
 import datetime #работа с датами
 import time #работа со временем
 import pandas #работа с dataframe
+import random
 
 #Сохранение в файл .csv
 def save_dataframe():
@@ -103,6 +104,21 @@ def check_pandas():
 t = threading.Thread(target=check_pandas,daemon=True)
 t.start()
 
+
+@bot.message_handler(commands=['8ball'])
+def ball_handler(message:types.Message):
+    #1 способ
+    text = random.choice(['Да','Нет','Спроси позже'])
+    bot.send_message(message.chat.id,text)
+    #2 способ
+    num = random.randint(0,2)
+    if num == 0:
+        text = 'Да'
+    if num == 1:
+        text = 'Нет'
+    else:
+        text = 'Спроси позже'
+    bot.send_message(message.chat.id,text)
 
 #Обработка бота
 bot.infinity_polling()
