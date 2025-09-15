@@ -3,6 +3,7 @@ import pandas
 import os
 import dotenv
 import json
+import ast
 
 def get_or_create_df(name:str,columns:list):
     try:
@@ -33,6 +34,7 @@ def get_or_create_food():
         }
         df.to_csv(f'dataframes/food.csv',index=False)
     return df
+
 
 def check_user(chat_id):#Проверка на существование пользователей
     user = users[users['chat_id'] == chat_id]
@@ -129,15 +131,14 @@ def user_cart(call:types.CallbackQuery):#Корзина пользователя
     buttons = {}
     user_id = call.from_user.id
     row = cart[cart['user_id'] == user_id]
-    index,usercart = next(row.iterrows())
-    food_ids = json.loads(usercart['food_ids'])
     cart_food = {} #Будет хранится еда в корзине
-    for index in food_ids.keys():
+    print(row['food_ids'].keys())
+    for index in row['food_ids'].keys():
         local_food = food.loc[index]
         cart_food[index] = local_food['name']
     for index,name in cart_food.items():
         buttons['-'] = {'callback_data':f'order_{index}_minus'}
-        buttons[{name}] = {'callback_data':''}
+        buttons[f'{name}'] = {'callback_data':'111'}
         buttons['+'] = {'callback_data':f'order_{index}_plus'}
     keyboard = util.quick_markup(buttons,3)
     bot.edit_message_text('Корзина',call.message.chat.id,call.message.id,reply_markup=keyboard)
@@ -173,10 +174,10 @@ def order_add(call:types.CallbackQuery):#Добавление заказа ###FI
         create_cart(user_id)
         cart_index,user_cart = get_cart(user_id)
     print(user_cart['food_ids'])
-    food_ids = json.loads(user_cart['food_ids'])
+    food_ids = json.loads(user_cart['food_ids']) 
     print(food_ids)
     if index not in food_ids:
-        food_ids[index] = 1
+        food_ids[f'{index}'] = 1
     updated_cart = {
         'user_id':user_id,
         'food_ids':food_ids
@@ -194,7 +195,7 @@ def check_cart(user_id:int):#Проверка на существование к
 def create_cart(user_id:int):#Создание корзины
     new_cart = {
         'user_id':user_id,
-        'food_ids':{}
+        'food_ids':'{}' #ID Еды и её кол-во
     }
     cart.loc[len(cart)] = new_cart
     cart.to_csv('dataframes/cart.csv',index=False) #Сохраняем в файл
@@ -204,7 +205,7 @@ def get_cart(user_id:int):#Получение корзины ###
     index,user_cart = next(row.iterrows())
     return index,user_cart
 
-def order_keyboard(index:int):
+def order_keyboard(index:int):#
     keyboard = util.quick_markup({
         'Добавить':{'callback_data':f'order_{index}_add'},
         'Назад':{'callback_data':'user_order'}
