@@ -2,6 +2,7 @@ from telebot import TeleBot,types,util
 import pandas
 import os
 import dotenv
+import json
 
 def get_or_create_df(name:str,columns:list):
     try:
@@ -33,13 +34,13 @@ def get_or_create_food():
         df.to_csv(f'dataframes/food.csv',index=False)
     return df
 
-def check_user(chat_id):
+def check_user(chat_id):#Проверка на существование пользователей
     user = users[users['chat_id'] == chat_id]
     if len(user) > 0:
         return True
     return False
 
-def save_user(message:types.Message):
+def save_user(message:types.Message):#Сохранение пользователя
     if message.contact != None:
         chat_id = message.chat.id
         user = message.from_user
@@ -83,6 +84,8 @@ def user_handler(call:types.CallbackQuery):#Вызов обработок наж
         user_delete(call)
     if call.data == 'user_menu':
         user_keyboard(call.message.chat.id,call)
+    if call.data == 'user_cart':
+        user_cart(call)
 
 def user_profile(call:types.CallbackQuery):#Профиль пользователя
     user = users[users['user_id'] == call.from_user.id]
@@ -106,15 +109,115 @@ def user_delete(call:types.CallbackQuery):#Нажатие на кнопку уд
     users.to_csv('dataframes/users.csv',index=False)
     bot.edit_message_text('Профиль удалён',call.message.chat.id,call.message.id,reply_markup=None)
 
-def user_order(call:types.CallbackQuery):#Нажате на кнопку заказ ###FIXME
+def user_order(call:types.CallbackQuery):#Нажате на кнопку заказ 
+    message = call.message
     buttons = {}
     for index,row in food.iterrows():
         name = row['name']
         buttons[name] = {'callback_data':f'order_{index}'}
+    if check_cart(call.from_user.id):#Есть что-то в корзине
+        buttons['Корзина'] = {'callback_data':'user_cart'}
     buttons['Назад'] = {'callback_data':'user_menu'}
     keyboard = util.quick_markup(buttons)
-    bot.edit_message_text('Асортимент',call.message.chat.id,call.message.id,reply_markup=keyboard)
+    if message.text:#Если обычные переходы
+        bot.edit_message_text('Асортимент',call.message.chat.id,call.message.id,reply_markup=keyboard)
+    else:#Если возвращаемся с заказа еды
+        bot.delete_message(call.message.chat.id,message.id)#Удалим старое сообщение с фотографией
+        bot.send_message(call.message.chat.id,'Асортимент',reply_markup=keyboard)
 
+def user_cart(call:types.CallbackQuery):#Корзина пользователя #FIXME
+    buttons = {}
+    user_id = call.from_user.id
+    row = cart[cart['user_id'] == user_id]
+    index,usercart = next(row.iterrows())
+    food_ids = json.loads(usercart['food_ids'])
+    cart_food = {} #Будет хранится еда в корзине
+    for index in food_ids.keys():
+        local_food = food.loc[index]
+        cart_food[index] = local_food['name']
+    for index,name in cart_food.items():
+        buttons['-'] = {'callback_data':f'order_{index}_minus'}
+        buttons[{name}] = {'callback_data':''}
+        buttons['+'] = {'callback_data':f'order_{index}_plus'}
+    keyboard = util.quick_markup(buttons,3)
+    bot.edit_message_text('Корзина',call.message.chat.id,call.message.id,reply_markup=keyboard)
+
+def order_handler(call:types.CallbackQuery):#Вызов обработок при нажати в заказах
+    data = call.data.split('_')
+    if len(data) == 2:
+        get_food(call)
+    else:
+        if data[2] == 'add':
+            order_add(call)
+        if data[2] == 'plus':#Увеличение кол-ва
+            pass
+        if data[2] == 'minus':#Уменьшение кол-ва
+            pass
+        if data[2] == 'delete':#Удаление еды из заказа
+            pass
+
+def get_food(call:types.CallbackQuery):
+    index = int(call.data.split('_')[1])
+    row = food.loc[index]
+    desc,image_url = create_order_description(row) 
+    image = types.InputMediaPhoto(types.InputFile(image_url),desc)
+    keyboard = order_keyboard(index)
+    bot.edit_message_media(image,call.message.chat.id,call.message.id,reply_markup=keyboard)
+
+def order_add(call:types.CallbackQuery):#Добавление заказа ###FIXME
+    user_id = call.from_user.id
+    index = call.data.split('_')[1]
+    if check_cart(user_id):
+        cart_index,user_cart = get_cart(user_id)
+    else:
+        create_cart(user_id)
+        cart_index,user_cart = get_cart(user_id)
+    print(user_cart['food_ids'])
+    food_ids = json.loads(user_cart['food_ids'])
+    print(food_ids)
+    if index not in food_ids:
+        food_ids[index] = 1
+    updated_cart = {
+        'user_id':user_id,
+        'food_ids':food_ids
+    }
+    cart.loc[cart_index] = updated_cart
+    cart.to_csv('dataframes/cart.csv',index=False)
+    #Возможно добавить переход в корзину
+
+def check_cart(user_id:int):#Проверка на существование корзины
+    user_cart = cart[cart['user_id']==user_id]
+    if len(user_cart) > 0:
+        return True #Существует
+    return False   #Отсутствует
+
+def create_cart(user_id:int):#Создание корзины
+    new_cart = {
+        'user_id':user_id,
+        'food_ids':{}
+    }
+    cart.loc[len(cart)] = new_cart
+    cart.to_csv('dataframes/cart.csv',index=False) #Сохраняем в файл
+
+def get_cart(user_id:int):#Получение корзины ###
+    row = cart[cart['user_id'] == user_id]
+    index,user_cart = next(row.iterrows())
+    return index,user_cart
+
+def order_keyboard(index:int):
+    keyboard = util.quick_markup({
+        'Добавить':{'callback_data':f'order_{index}_add'},
+        'Назад':{'callback_data':'user_order'}
+    })
+    return keyboard
+
+def create_order_description(row:pandas.Series):
+    name,image_url,category,ingridients,cost = row.values
+    descrtipton = f'Название:{name}\nКатегория:{category}\nИнгридиенты:'
+    for element in ingridients:#Добавление ингридиентов
+        descrtipton += f'{element} '
+    descrtipton += f'\nЦена:{cost} руб.'
+    return descrtipton,image_url
 
 dotenv.load_dotenv()
 
@@ -142,14 +245,18 @@ def command_dump_user(message):
     users = pandas.DataFrame(columns=['chat_id','user_id','first_name','last_name','username','phone'])
     users.to_csv('dataframes/users.csv',index=False)
 
-@bot.callback_query_handler(func=lambda call:True)
+@bot.callback_query_handler(func=lambda call:True)#Обработка нажатий на клавиатуру
 def callback_handler(call:types.CallbackQuery):
     if call.message:
         if call.data.startswith('user'):
             user_handler(call)
+        if call.data.startswith('order'):
+            order_handler(call)
 
-if __name__ == '__main__':
-    users = get_or_create_df('users',['chat_id','user_id','first_name','last_name','username','phone'])
-    food = get_or_create_food()
+if __name__ == '__main__':#Проверка на то что запустили этот файл
+    users = get_or_create_df('users',['chat_id','user_id','first_name','last_name','username','phone']) #Пользователи
+    food = get_or_create_food()#Пища
+    cart = get_or_create_df('cart',['user_id','food_ids'])#Корзина
+    orders = get_or_create_df('orders',['user_name','food_ids','total_cost','status'])#Заказы
     admins_id = []
     bot.infinity_polling()
