@@ -3,7 +3,6 @@ import pandas
 import os
 import dotenv
 import json
-import ast
 
 def get_or_create_df(name:str,columns:list):
     try:
@@ -34,7 +33,6 @@ def get_or_create_food():
         }
         df.to_csv(f'dataframes/food.csv',index=False)
     return df
-
 
 def check_user(chat_id):#Проверка на существование пользователей
     user = users[users['chat_id'] == chat_id]
@@ -87,7 +85,7 @@ def user_handler(call:types.CallbackQuery):#Вызов обработок наж
     if call.data == 'user_menu':
         user_keyboard(call.message.chat.id,call)
     if call.data == 'user_cart':
-        user_cart(call)
+        user_cart(call.message.chat.id,call)
 
 def user_profile(call:types.CallbackQuery):#Профиль пользователя
     user = users[users['user_id'] == call.from_user.id]
@@ -127,35 +125,47 @@ def user_order(call:types.CallbackQuery):#Нажате на кнопку зак�
         bot.delete_message(call.message.chat.id,message.id)#Удалим старое сообщение с фотографией
         bot.send_message(call.message.chat.id,'Асортимент',reply_markup=keyboard)
 
-def user_cart(call:types.CallbackQuery):#Корзина пользователя #FIXME
+def user_cart(chat_id,call:types.CallbackQuery = None):#Корзина пользователя #FIXME
     buttons = {}
-    user_id = call.from_user.id
+    if call == None:
+        user_id = chat_id
+    else:
+        user_id = call.from_user.id
     row = cart[cart['user_id'] == user_id]
+    food_ids = json.loads(row['food_ids'].item())
     cart_food = {} #Будет хранится еда в корзине
-    print(row['food_ids'].keys())
-    for index in row['food_ids'].keys():
-        local_food = food.loc[index]
-        cart_food[index] = local_food['name']
-    for index,name in cart_food.items():
-        buttons['-'] = {'callback_data':f'order_{index}_minus'}
-        buttons[f'{name}'] = {'callback_data':'111'}
-        buttons['+'] = {'callback_data':f'order_{index}_plus'}
-    keyboard = util.quick_markup(buttons,3)
-    bot.edit_message_text('Корзина',call.message.chat.id,call.message.id,reply_markup=keyboard)
+    for index,count in food_ids.items():
+        local_food = food.loc[int(index)]
+        cart_food[index] = {'name':local_food['name'],'count':count}
+    keyboard = types.InlineKeyboardMarkup()
+    for index,values in cart_food.items():#на 1 строке Наименование на 2 + -
+        btn_name = types.InlineKeyboardButton(f'{values['name']} - {values['count']} штука(-и)',callback_data='111')
+        keyboard.add(btn_name,row_width=1)
+        btn_minus=types.InlineKeyboardButton('-',callback_data=f'order_{index}_minus')
+        btn_plus = types.InlineKeyboardButton('+',callback_data=f'order_{index}_plus') 
+        keyboard.add(btn_plus,btn_minus,row_width=2)
+    keyboard.add(types.InlineKeyboardButton('Заказать',callback_data='order_create'))
+    keyboard.add(types.InlineKeyboardButton('Назад',callback_data='user_order'))
+    text = ('_' * 10) + 'Корзина' + ('_' * 8)
+    if call != None:
+        bot.edit_message_text(text,call.message.chat.id,call.message.id,reply_markup=keyboard)
+    else:
+        bot.send_message(chat_id,text,reply_markup=keyboard)
 
 def order_handler(call:types.CallbackQuery):#Вызов обработок при нажати в заказах
     data = call.data.split('_')
     if len(data) == 2:
-        get_food(call)
+        if data[1] == 'create':
+            create_order(call)
+        else:
+            get_food(call)
     else:
         if data[2] == 'add':
             order_add(call)
         if data[2] == 'plus':#Увеличение кол-ва
-            pass
+            order_plus(call)
         if data[2] == 'minus':#Уменьшение кол-ва
-            pass
-        if data[2] == 'delete':#Удаление еды из заказа
-            pass
+            order_minus(call)
 
 def get_food(call:types.CallbackQuery):
     index = int(call.data.split('_')[1])
@@ -173,16 +183,15 @@ def order_add(call:types.CallbackQuery):#Добавление заказа ###FI
     else:
         create_cart(user_id)
         cart_index,user_cart = get_cart(user_id)
-    print(user_cart['food_ids'])
     food_ids = json.loads(user_cart['food_ids']) 
-    print(food_ids)
     if index not in food_ids:
-        food_ids[f'{index}'] = 1
+        food_ids[index] = 1
     updated_cart = {
         'user_id':user_id,
         'food_ids':food_ids
     }
     cart.loc[cart_index] = updated_cart
+    cart['food_ids'] = cart['food_ids'].apply(json.dumps)
     cart.to_csv('dataframes/cart.csv',index=False)
     #Возможно добавить переход в корзину
 
@@ -219,6 +228,56 @@ def create_order_description(row:pandas.Series):
         descrtipton += f'{element} '
     descrtipton += f'\nЦена:{cost} руб.'
     return descrtipton,image_url
+
+def order_minus(call:types.CallbackQuery):
+    user_id = call.from_user.id
+    food_id = call.data.split('_')[1]
+    row = cart[cart['user_id'] == user_id]
+    food_ids = json.loads(row['food_ids'].item())
+    if food_ids[food_id] == 1 :
+        food_ids.pop(food_id)
+    else:
+        food_ids[food_id] -= 1
+    if len(food_ids) > 0:
+        cart.loc[row.index[0], 'food_ids'] = json.dumps(food_ids)
+        cart.to_csv('dataframes/cart.csv',index=False)
+        bot.delete_message(call.message.chat.id,call.message.id)
+        user_cart(call.message.chat.id)
+    else:
+        cart.drop(index=row.index[0],inplace=True)
+        cart.to_csv('dataframes/cart.csv',index=False)
+        user_order(call)
+
+def order_plus(call:types.CallbackQuery):
+    user_id = call.from_user.id
+    food_id = call.data.split('_')[1]
+    row = cart[cart['user_id'] == user_id]
+    food_ids = json.loads(row['food_ids'].item())
+    food_ids[food_id] += 1
+    cart.loc[row.index[0], 'food_ids'] = json.dumps(food_ids)
+    cart.to_csv('dataframes/cart.csv',index=False)
+    bot.delete_message(call.message.chat.id,call.message.id)
+    user_cart(call.message.chat.id)
+
+def create_order(call:types.CallbackQuery):#Первод корзины в статус заказа
+    user = call.from_user
+    row_cart = cart[cart['user_id'] == user.id]
+    food_ids = json.loads(row_cart['food_ids'].item())
+    total_cost = 0
+    for index in food_ids.keys():
+        total_cost += food.loc[int(index)]['cost']
+    name = f'{user.first_name} {user.last_name}'
+    new_order = {
+        'user_id':user.id,
+        'name':name,
+        'food_ids':json.dumps(food_ids),
+        'total_cost':total_cost,
+        'status':'Активный'
+    }
+    orders.loc[len(orders)] = new_order
+    orders.to_csv('dataframes/orders.csv',index=False)
+    bot.edit_message_text('Заказ создан',call.message.chat.id,call.message.id,reply_markup=None)
+
 
 dotenv.load_dotenv()
 
@@ -258,6 +317,6 @@ if __name__ == '__main__':#Проверка на то что запустили 
     users = get_or_create_df('users',['chat_id','user_id','first_name','last_name','username','phone']) #Пользователи
     food = get_or_create_food()#Пища
     cart = get_or_create_df('cart',['user_id','food_ids'])#Корзина
-    orders = get_or_create_df('orders',['user_name','food_ids','total_cost','status'])#Заказы
+    orders = get_or_create_df('orders',['user_id','name','food_ids','total_cost','status'])#Заказы
     admins_id = []
     bot.infinity_polling()
