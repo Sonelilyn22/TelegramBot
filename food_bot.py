@@ -3,6 +3,7 @@ import pandas
 import os
 import dotenv
 import json
+import datetime
 
 def get_or_create_df(name:str,columns:list):
     try:
@@ -65,7 +66,7 @@ def user_keyboard(chat_id,call = None):
         {
             'Профиль':{'callback_data':'user_profile'},
             'Заказать':{'callback_data':'user_order'},
-            'История':{'callback_data':'user_history'}
+            'Активные заказы':{'callback_data':'user_check_orders'}
         }
     )
     if call == None:
@@ -86,6 +87,10 @@ def user_handler(call:types.CallbackQuery):#Вызов обработок наж
         user_keyboard(call.message.chat.id,call)
     if call.data == 'user_cart':
         user_cart(call.message.chat.id,call)
+    if call.data == 'user_check_orders':
+        user_check_orders(call)
+    if len(call.data.split('_')) > 3:
+        user_check_order(call)
 
 def user_profile(call:types.CallbackQuery):#Профиль пользователя
     user = users[users['user_id'] == call.from_user.id]
@@ -264,20 +269,120 @@ def create_order(call:types.CallbackQuery):#Первод корзины в ст�
     row_cart = cart[cart['user_id'] == user.id]
     food_ids = json.loads(row_cart['food_ids'].item())
     total_cost = 0
-    for index in food_ids.keys():
-        total_cost += food.loc[int(index)]['cost']
+    for index,count in food_ids.items():
+        total_cost += food.loc[int(index)]['cost'] * count
     name = f'{user.first_name} {user.last_name}'
     new_order = {
         'user_id':user.id,
         'name':name,
         'food_ids':json.dumps(food_ids),
         'total_cost':total_cost,
+        'date':datetime.date.today(),
         'status':'Активный'
     }
     orders.loc[len(orders)] = new_order
     orders.to_csv('dataframes/orders.csv',index=False)
     bot.edit_message_text('Заказ создан',call.message.chat.id,call.message.id,reply_markup=None)
+    cart.drop(index=row_cart.index[0],inplace=True)
+    cart.to_csv('dataframes/cart.csv',index=False)
 
+def user_check_orders(call:types.CallbackQuery):#Возвращает все активные заказы
+    user_id = call.from_user.id
+    user_active_orders = orders[(orders['user_id'] == user_id) & (orders['status'] == 'Активный')]
+    buttons = {}
+    for index,row in user_active_orders.iterrows():
+        buttons[row['date']] = {'callback_data':f'user_check_order_{index}'}
+    buttons['Назад'] = {'callback_data':'user_menu'}
+    keyboard = util.quick_markup(buttons,1)
+    bot.edit_message_text('Активные заказы',call.message.chat.id,call.message.id,reply_markup=keyboard)
+
+def user_check_order(call:types.CallbackQuery):#Возвращает конкретный заказ
+    order_id = int(call.data.split('_')[3])
+    order = orders.iloc[order_id]
+    result = 'Информация о заказе:\nЕда:\n'
+    food_ids = json.loads(order['food_ids'])
+    for index,count in food_ids.items():
+        food_info = food.iloc[int(index)]
+        name = food_info['name']
+        cost = food_info['cost'] * count
+        result += f'{name} - {count} штук цена:{cost}\n'
+    result += f'Итого:{order['total_cost']}'
+    keyboard = util.quick_markup({
+        'Назад':{'callback_data':'user_check_orders'}
+    })
+    bot.edit_message_text(result,call.message.chat.id,call.message.id,reply_markup=keyboard)
+
+def admin_menu(chat_id,call:types.CallbackQuery = None):
+    keyboard = util.quick_markup({
+        'Просмотреть активные заказы':{'callback_data':'admin_check_orders_1'}
+    })
+    if call == None:
+        bot.send_message(chat_id,'Меню администратора',reply_markup=keyboard)#Если вызвано через команду старт
+    else:
+        bot.edit_message_text('Меню администратора',chat_id,call.message.id,reply_markup=keyboard)#Если вернулись из другой клавиатуры
+
+def admin_handler(call:types.CallbackQuery):
+    if call.data.startswith('admin_check_orders'):
+        admin_check_orders(call)
+        return
+    if call.data.startswith('admin_check_order'):
+        admin_check_order(call)
+        return
+    if call.data.startswith('admin_close_order'):
+        admin_close_order(call)
+        return
+    if call.data == 'admin_menu':
+        admin_menu(call.message.chat.id,call)
+        return
+
+def admin_check_orders(call:types.CallbackQuery):
+    page = int(call.data.split('_')[3])#Страница на 1 странице по 5 заказов
+    active_orders = orders[orders['status'] == 'Активный']
+    page_orders = active_orders.head(page*5).tail(5)
+    buttons = {}
+    for index,row in page_orders.iterrows(): #Возвращается нужный индекс или индекс из page_orders
+        btn_name = f'{row['name']} - {row['date']}'
+        buttons[btn_name] = {'callback_data':f'admin_check_order_{index}'}
+    keyboard = util.quick_markup(buttons,1)
+    if(len(active_orders) > 5):
+        if page == 1:
+            if len(page_orders) == 5:
+                btn_next = types.InlineKeyboardButton('>',callback_data=f'admin_check_orders_{index+1}')
+                keyboard.add(btn_next)
+        else:
+            if len(page_orders) == 5:
+                btn_next = types.InlineKeyboardButton('>',callback_data=f'admin_check_orders_{index+1}')
+            btn_pre = types.InlineKeyboardButton('<',callback_data=f'admin_check_orders_{index-1}')
+            try:
+                keyboard.add(btn_pre,btn_next,row_width=2)
+            except:
+                keyboard.add(btn_pre)
+    keyboard.add(types.InlineKeyboardButton('Назад',callback_data='admin_menu'))
+    bot.edit_message_text(f'Активные заказы стр {page}',call.message.chat.id,call.message.id,reply_markup=keyboard)
+
+def admin_check_order(call:types.CallbackQuery):
+    index = int(call.data.split('_')[3])
+    order = orders.iloc[index]
+    result = 'Информация о заказе:\nЕда:\n'
+    food_ids = json.loads(order['food_ids'])
+    for index,count in food_ids.items():
+        food_info = food.iloc[int(index)]
+        name = food_info['name']
+        cost = food_info['cost'] * count
+        result += f'{name} - {count} штук цена:{cost}\n'
+    result += f'Итого:{order['total_cost']}'
+    keyboard = util.quick_markup({
+        'Закрыть':{'callback_data':f'admin_close_order_{index}'},
+        'Назад':{'callback_data':'user_check_orders'}
+    })
+    bot.edit_message_text(result,call.message.chat.id,call.message.id,reply_markup=keyboard)
+
+def admin_close_order(call:types.CallbackQuery):
+    index = int(call.data.split('_')[3])
+    orders.loc[index,'status'] = 'Закрыто'
+    orders.to_csv('dataframes/orders.csv',index=False)
+    bot.send_message(call.message.chat.id,'Статус изменён на закрыто')
+    admin_menu(call.message.chat.id,call)
 
 dotenv.load_dotenv()
 
@@ -288,6 +393,7 @@ bot = TeleBot(api_token)
 def command_start(message:types.Message):
     chat_id = message.chat.id
     if message.from_user.id in admins_id:#Проверка на то что пользователь является администратором
+        admin_menu(chat_id)
         return
     if not check_user(chat_id):
         keyboard = types.ReplyKeyboardMarkup()
@@ -312,11 +418,13 @@ def callback_handler(call:types.CallbackQuery):
             user_handler(call)
         if call.data.startswith('order'):
             order_handler(call)
+        if call.data.startswith('admin'):
+            admin_handler(call)
 
 if __name__ == '__main__':#Проверка на то что запустили этот файл
     users = get_or_create_df('users',['chat_id','user_id','first_name','last_name','username','phone']) #Пользователи
     food = get_or_create_food()#Пища
     cart = get_or_create_df('cart',['user_id','food_ids'])#Корзина
-    orders = get_or_create_df('orders',['user_id','name','food_ids','total_cost','status'])#Заказы
-    admins_id = []
+    orders = get_or_create_df('orders',['user_id','name','food_ids','total_cost','date','status'])#Заказы
+    admins_id = [1481618030] #Тут ваш id
     bot.infinity_polling()
